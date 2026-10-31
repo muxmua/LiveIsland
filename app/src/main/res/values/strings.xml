@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">鸿蒙灵动岛</string>
+
+    <string name="settings_title">灵动岛</string>
+    <string name="settings_subtitle">LiveIsland  ·  %1$s  ·  作者：%2$s</string>
+    <string name="settings_badge">LSPosed</string>
+
+    <string name="section_appearance">外观</string>
+    <string name="section_tips">提示</string>
+    <string name="section_features">功能</string>
+    <string name="section_maintenance">维护</string>
+
+    <string name="section_background">灵动岛背景</string>
+    <string name="bg_frosted">毛玻璃</string>
+    <string name="bg_frosted_desc">磨砂质感</string>
+    <string name="bg_black">纯黑</string>
+    <string name="bg_black_desc">纯黑不透明</string>
+
+    <string name="feat_media">音乐播放</string>
+    <string name="feat_media_desc">MediaSession 媒体卡片</string>
+    <string name="feat_nav">导航</string>
+    <string name="feat_nav_desc">百度地图</string>
+    <string name="feat_capsule">实况通知</string>
+    <string name="feat_capsule_desc">外卖、打车等实况胶囊</string>
+    <string name="feat_stopwatch">秒表</string>
+    <string name="feat_stopwatch_desc">华为时钟秒表</string>
+    <string name="feat_usb">USB 连接</string>
+    <string name="feat_usb_desc">插线时的连接方式入口</string>
+    <string name="feat_charge">充电提示</string>
+    <string name="feat_charge_desc">充电状态与低电量提醒</string>
+    <string name="feat_flash">手电筒</string>
+    <string name="feat_flash_desc">手电筒实况状态</string>
+    <string name="feat_record">屏幕录制</string>
+    <string name="feat_record_desc">录屏实况状态</string>
+
+    <string name="tip_auto">音乐会自动上岛</string>
+    <string name="tip_rotate">同时有多个活动时，点右侧圆点即可轮换。</string>
+    <string name="tip_instant">设置修改后立即生效，无需重启 SystemUI。</string>
+
+    <string name="restart_title">重启 SystemUI</string>
+    <string name="restart_desc">设置改动会立即生效。只有模块没有注入、或者岛没有出现时，才需要重启 SystemUI。</string>
+    <string name="restart_button">重启 SystemUI</string>
+    <string name="restart_toast">正在重启 SystemUI…</string>
+    <string name="restart_ok">已重启 SystemUI</string>
+    <string name="restart_need_root">需要 Root 权限才能重启</string>
+
+    <string name="settings_footer">修改设置后立即生效。若岛没有出现，请确认已在 LSPosed 中启用本模块，并勾选「系统界面」作用域。\nLiveIsland  ·  %1$s  ·  作者：%2$s</string>
+
+</resources>

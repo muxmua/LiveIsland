@@ -1,0 +1,74 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.harmonyos.liveIsland'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.harmonyos.liveIsland"
+        minSdk 29
+        targetSdk 31
+        versionCode 30
+        versionName "v1.1.0"
+    }
+
+    signingConfigs {
+        release {
+            def ksProps = new Properties()
+            def ksFile = rootProject.file('keystore.properties')
+            if (ksFile.exists()) {
+                ksProps.load(new FileInputStream(ksFile))
+                storeFile rootProject.file(ksProps['storeFile'])
+                storePassword ksProps['storePassword']
+                keyAlias ksProps['keyAlias']
+                keyPassword ksProps['keyPassword']
+            }
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    compileOnly files('libs/xposed-stub.jar')
+}
+
+android.applicationVariants.all { variant ->
+    variant.outputs.all { output ->
+        output.outputFileName = "LiveIsland.apk"
+    }
+}
+
+tasks.matching { it.name == 'assembleRelease' }.configureEach {
+    doLast {
+        copy {
+            from layout.buildDirectory.file('outputs/apk/release/LiveIsland.apk')
+            into rootProject.projectDir
+        }
+        println "APK: ${rootProject.projectDir}/LiveIsland.apk"
+    }
+}

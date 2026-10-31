@@ -1,0 +1,22 @@
+# Gradle
+.gradle/
+build/
+*.iml
+
+# 本机路径与 IDE
+local.properties
+.idea/
+.vscode/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 构建产物（libs/xposed-stub.jar 是构建输入，必须保留）
+/*.apk
+/*.apk.idsig
+
+# 本地签名口令
+keystore.properties
+
+# 工具缓存
+.workbuddy/
