@@ -124,12 +124,9 @@ public class IslandView extends View {
     private Bitmap mFake;
     private boolean mSnapshotting;
 
-    private float mBurnX;
-    private float mBurnY;
-    private int mBurnDir;
     private long mShownAt;
     private float mFade = 1f;
-    private Runnable mBurnTick;
+    private Runnable mDimTick;
     private Runnable mAutoCollapse;
     private long mTouchGuardUntil;
 
@@ -1240,23 +1237,17 @@ public class IslandView extends View {
         if (getWidth() <= 1 || getHeight() <= 1) return;
         recycleFake();
         Bitmap b = null;
-        float bx = mBurnX;
-        float by = mBurnY;
         mSnapshotting = true;
         try {
             int hh = Math.max(1, Math.round(pillHeight()));
             b = Bitmap.createBitmap(getWidth(), hh, Bitmap.Config.ARGB_8888);
             Canvas c = new Canvas(b);
-            mBurnX = 0f;
-            mBurnY = 0f;
             draw(c);
         } catch (Throwable t) {
             if (b != null) b.recycle();
             b = null;
         } finally {
             mSnapshotting = false;
-            mBurnX = bx;
-            mBurnY = by;
         }
         mFake = b;
     }
@@ -1272,49 +1263,26 @@ public class IslandView extends View {
     }
 
     void onShown() {
-        startBurnIn();
+        startIdleDim();
     }
 
     void onHidden() {
-        stopBurnIn();
+        stopIdleDim();
         cancelAutoCollapse();
         recycleFake();
         mFade = 1f;
         setAlpha(1f);
     }
 
-    private void startBurnIn() {
-        stopBurnIn();
-        mBurnX = 0f;
-        mBurnY = 0f;
-        mBurnDir = 0;
+    private void startIdleDim() {
+        stopIdleDim();
         mFade = 1f;
         setAlpha(1f);
         mShownAt = SystemClock.uptimeMillis();
-        mBurnTick = new Runnable() {
+        mDimTick = new Runnable() {
             @Override
             public void run() {
                 long now = SystemClock.uptimeMillis();
-                mBurnDir = (mBurnDir + 1) % 4;
-                float step = dp(2f);
-                switch (mBurnDir) {
-                    case 0:
-                        mBurnX = -step;
-                        mBurnY = 0f;
-                        break;
-                    case 1:
-                        mBurnX = -step;
-                        mBurnY = step;
-                        break;
-                    case 2:
-                        mBurnX = 0f;
-                        mBurnY = step;
-                        break;
-                    default:
-                        mBurnX = 0f;
-                        mBurnY = 0f;
-                        break;
-                }
                 if (mFade >= 1f && now - mShownAt > 10 * 60 * 1000L) {
                     mFade = 0.5f;
                     animate().alpha(0.5f).setDuration(600).start();
@@ -1323,24 +1291,18 @@ public class IslandView extends View {
                 postDelayed(this, 60000);
             }
         };
-        postDelayed(mBurnTick, 30000);
+        postDelayed(mDimTick, 30000);
     }
 
-    private void stopBurnIn() {
-        if (mBurnTick != null) {
-            removeCallbacks(mBurnTick);
-            mBurnTick = null;
+    private void stopIdleDim() {
+        if (mDimTick != null) {
+            removeCallbacks(mDimTick);
+            mDimTick = null;
         }
-        mBurnX = 0f;
-        mBurnY = 0f;
-        mBurnDir = 0;
     }
 
     private void noteContentChanged() {
         mShownAt = SystemClock.uptimeMillis();
-        mBurnX = 0f;
-        mBurnY = 0f;
-        mBurnDir = 0;
         if (mFade < 1f) {
             mFade = 1f;
             animate().alpha(1f).setDuration(200).start();
@@ -1377,7 +1339,6 @@ public class IslandView extends View {
         if (w <= 1) return;
 
         int root = c.save();
-        c.translate(mBurnX, mBurnY);
 
         float e = clamp01(mExpand);
         if (mDrawW < 0f) mDrawW = pillWidth();
@@ -1856,7 +1817,7 @@ public class IslandView extends View {
         mBg.setStyle(Paint.Style.FILL);
         mBg.setShader(null);
         mBg.setColor(0xFF000000);
-        mBg.setAlpha((int) (0x4D * a));
+        mBg.setAlpha((int) ((mLightBg ? 0x1F : 0x4D) * a));
         c.drawRect(r, mBg);
     }
 
@@ -2881,7 +2842,7 @@ public class IslandView extends View {
 
     @Override
     protected void onDetachedFromWindow() {
-        stopBurnIn();
+        stopIdleDim();
         cancelAutoCollapse();
         recycleFake();
         if (mAnim != null) {

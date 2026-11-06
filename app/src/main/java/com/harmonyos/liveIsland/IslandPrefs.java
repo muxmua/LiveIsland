@@ -33,7 +33,7 @@ public final class IslandPrefs {
     public static final String K_FEAT_FLASH = "feat_flash";
     public static final String K_FEAT_RECORD = "feat_record";
 
-    public static final String VERSION_NAME = "v1.0.4";
+    public static final String VERSION_NAME = "v1.2.0";
     public static final String AUTHOR = "MuxMu";
 
     private static final Map<String, String> CACHE = new HashMap<String, String>();

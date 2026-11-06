@@ -25,12 +25,12 @@
 
 ## 背景样式
 
-设置里可选两种：
+设置里可选两种，默认**纯黑**：
 
-- **毛玻璃** —— 实时截屏模糊后透出身后界面的颜色
+- **毛玻璃** —— 透出身后的界面颜色
 - **纯黑** —— 不透明黑底
 
-字体颜色按背景亮度自动反色（亮底深字 / 暗底白字）。
+字体颜色按背景亮度自动反色（亮底深字 / 暗底白字），切换界面后自动重算。
 
 ## 工作原理
 
@@ -40,7 +40,7 @@ IslandHook ──► IslandController ──► IslandView（全部 Canvas 自�
    │                  ├─ MediaSession         音乐
    │                  ├─ 广播 + 进程内 hook    导航 / 秒表
    │                  ├─ NotificationListener  实况通知
-   │                  └─ SurfaceControl 截图 → 降采样 → 盒式模糊（背景）
+   │                  └─ SurfaceControl 截图 → RenderNode GPU 模糊（背景）
    │
    └─ 注入 SystemUI / 地图 / 时钟 / 设置
 ```
@@ -49,12 +49,43 @@ IslandHook ──► IslandController ──► IslandView（全部 Canvas 自�
 
 - **不申请悬浮窗权限**：直接 `WindowManager.addView` 到 SystemUI，用 `TYPE_SYSTEM_ERROR` 层级。
 - **绘制窗口永不接收触摸**：大面积透明窗口在华为 ROM 上即使标了 `NOT_TOUCHABLE` 也会吃掉点击，  
-  所以触摸全部交给两个独立小窗（收起态药丸大小、展开态卡片大小），按 1:1 转发坐标。
-- **窗口宽度恒定、只改高度**：避免缩放窗口时药丸横向跳动，也避免残留的透明区域遮挡下方点击。
-- **背景模糊**：`screenshot_ext_hw` 取半尺寸截图 → 转成内存位图（hardware bitmap 不能直接读像素）  
-  → 降采样到 1/16 → 三遍盒式模糊（近似高斯）→ 叠遮罩。全程在后台线程完成，主线程只做引用交换。
+  所以另建一个纯触摸窗口，尺寸与药丸/卡片一致，按 1:1 转发坐标给绘制层。
+- **窗口标记为可信悬浮窗**：反射写入 `PRIVATE_FLAG_TRUSTED_OVERLAY`，系统因此不会把它算作  
+  "遮挡界面的第三方悬浮窗"，LSPosed 管理器的防点击劫持校验可以正常通过。
 - **跨进程配置**：设置页写自己的 SharedPreferences，SystemUI 通过同 APK 的 `ContentProvider` 读取，  
   改完发广播即时生效，不需要重启。
+
+## 背景模糊实现
+
+鸿蒙没有开启 SurfaceFlinger 的背景模糊（`ro.surface_flinger.supports_background_blur` 缺失），  
+自定义窗口拿不到系统级实时模糊，所以背景由模块自己截屏再模糊。
+
+这里复用了华为给 HWUI 加的原生模糊能力：
+
+```java
+// 1. 直接截成小图（不需要截大图再缩）
+SurfaceControl.screenshot(rect, 384, 213, rotation)
+
+// 2. 画进 RenderNode，开启华为扩展的 GPU 模糊
+node.setLayerType(2);
+node.setBehindBlurEnabled(true);
+node.setBlurProgress(1.0f);
+node.setScaleBlurInputEnabled(true);
+node.beginRecording().drawBitmap(shot, 0, 0, null);
+node.endRecording();
+
+// 3. 渲染到 ImageReader，模糊在 GPU 上完成
+renderer.setSurface(reader.getSurface());
+renderer.setContentRoot(node);
+renderer.createRenderRequest().syncAndDraw();
+```
+
+实测（平板 1600×2560）：截图 16~~18ms，GPU 模糊 18~~45ms，整条管线 20~45ms，全程在后台线程。
+
+同为华为自家的通知中心也走这条路径（`com.android.emui.blur.WindowBlur`），只是它把图压到屏幕的  
+1/20，观感更糊、开销更低。本模块用 384px 宽保留一些背景层次。
+
+`setBlurProgress()` 只影响动画进度，不改变模糊半径——真正决定模糊观感的是截图分辨率。
 
 ## 构建
 
@@ -94,9 +125,8 @@ compileOnly 'de.robv.android.xposed:api:82'
 
 ## 已知限制
 
-- **系统级实时模糊不可用**：本模块的自定义窗口无法调用 SurfaceFlinger 的背景模糊  
-  （`ro.surface_flinger.supports_background_blur` 在鸿蒙上未启用），因此背景靠截屏 + 模糊实现，  
-  切换界面时约有 200ms 的跟进延迟。
+- **没有系统级实时模糊**：鸿蒙未启用 SurfaceFlinger 的背景模糊，自定义窗口无法做到零延迟跟随，  
+  背景只能靠截屏 + GPU 模糊实现。
 
 ## 许可证
 

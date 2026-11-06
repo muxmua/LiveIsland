@@ -438,8 +438,11 @@ public class IslandController implements IslandView.Host {
                             : !fg.equals(mForegroundPkg);
                     mForegroundPkg = fg;
                     if (changed) {
+                        IslandHook.log("fg->" + fg);
                         applyState();
+                        mChaseLeft = 10;
                         mH.removeCallbacks(mBgSnap);
+                        mH.removeCallbacks(mBgSnapForce);
                         mH.post(mBgSnap);
                     }
                 }
@@ -2359,6 +2362,27 @@ public class IslandController implements IslandView.Host {
         }
     }
 
+    private static int trustedOverlayFlag() {
+        try {
+            java.lang.reflect.Field f = WindowManager.LayoutParams.class
+                    .getField("PRIVATE_FLAG_TRUSTED_OVERLAY");
+            return f.getInt(null);
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    private static void markTrusted(WindowManager.LayoutParams lp) {
+        int flag = trustedOverlayFlag();
+        if (flag == 0) return;
+        try {
+            java.lang.reflect.Field pf = WindowManager.LayoutParams.class
+                    .getField("privateFlags");
+            pf.setInt(lp, pf.getInt(lp) | flag);
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void showWindow() {
         if (mAdded || mWm == null) return;
         if (mView.isAttachedToWindow()) {
@@ -2390,6 +2414,7 @@ public class IslandController implements IslandView.Host {
             lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
             lp.y = mY;
             lp.setTitle("LiveIsland");
+            markTrusted(lp);
             if (type == 2014) lp.token = token;
             if (mBlurSupported) {
                 try {
@@ -2479,6 +2504,7 @@ public class IslandController implements IslandView.Host {
         lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         lp.y = mY;
         lp.setTitle(expanded ? "LiveIslandCardTouch" : "LiveIslandTouch");
+        markTrusted(lp);
         try {
             mWm.addView(mTouchView, lp);
             mTouchLp = lp;
@@ -2610,19 +2636,22 @@ public class IslandController implements IslandView.Host {
                 Bitmap bmp = null;
                 Bitmap blur = null;
                 try {
-                    bmp = captureRect(x, y, w, h);
-                    if (bmp != null) {
-                        try {
-                            bmp = bmp.copy(Bitmap.Config.ARGB_8888, true);
-                        } catch (Throwable ignored) {
+                    blur = captureBlurGpu(x, y, w, h);
+                    if (blur == null) {
+                        bmp = captureRect(x, y, w, h);
+                        if (bmp != null) {
+                            try {
+                                bmp = bmp.copy(Bitmap.Config.ARGB_8888, true);
+                            } catch (Throwable ignored) {
+                            }
                         }
+                        if (bmp != null) {
+                            float k = bmp.getWidth() / (float) w;
+                            patchPill(bmp, (int) (Math.max(0, (w - pillW) / 2) * k), 0,
+                                    (int) (pillW * k), (int) ((pillH + 8) * k));
+                        }
+                        blur = IslandView.glassOf(bmp);
                     }
-                    if (bmp != null) {
-                        float k = bmp.getWidth() / (float) w;
-                        patchPill(bmp, (int) (Math.max(0, (w - pillW) / 2) * k), 0,
-                                (int) (pillW * k), (int) ((pillH + 8) * k));
-                    }
-                    blur = IslandView.glassOf(bmp);
                 } finally {
                     mCapturing = false;
                     if (bmp != null && bmp != blur) {
@@ -2649,11 +2678,45 @@ public class IslandController implements IslandView.Host {
         t.start();
     }
 
-    private static final long BACKDROP_REFRESH_MS = 300;
+    private static final long BACKDROP_REFRESH_MS = 150;
     private static final long BACKDROP_STALE_MS = 6000;
     private boolean mPillGlassBusy;
     private boolean mBgPending;
     private String mBackdropFg = "";
+
+    private int mChaseLeft;
+    private float mBackdropLuma = -1f;
+
+    private final Runnable mBgSnapForce = new Runnable() {
+        @Override
+        public void run() {
+            refreshBackdropCollapsed(true);
+        }
+    };
+
+    private static float meanLuma(Bitmap b) {
+        if (b == null || b.isRecycled()) return -1f;
+        try {
+            int w = b.getWidth();
+            int h = b.getHeight();
+            if (w <= 0 || h <= 0) return -1f;
+            int stepX = Math.max(1, w / 48);
+            int stepY = Math.max(1, h / 48);
+            long sum = 0;
+            int n = 0;
+            for (int y = 0; y < h; y += stepY) {
+                for (int x = 0; x < w; x += stepX) {
+                    int p = b.getPixel(x, y);
+                    sum += (((p >> 16) & 0xFF) * 299 + ((p >> 8) & 0xFF) * 587
+                            + (p & 0xFF) * 114) / 1000;
+                    n++;
+                }
+            }
+            return n == 0 ? -1f : sum / (float) n;
+        } catch (Throwable t) {
+            return -1f;
+        }
+    }
 
     private final Runnable mBgSnap = new Runnable() {
         @Override
@@ -2674,14 +2737,17 @@ public class IslandController implements IslandView.Host {
             return;
         }
         long now = SystemClock.elapsedRealtime();
-        if (force) {
-            if (now - mBackdropAt < 60) return;
-        } else {
-            if (now - mBackdropAt < BACKDROP_REFRESH_MS) return;
-            String fg = mForegroundPkg == null ? "" : mForegroundPkg;
-            boolean fgChanged = !fg.equals(mBackdropFg);
-            boolean stale = now - mBackdropAt > BACKDROP_STALE_MS;
-            if (!fgChanged && !stale && mBackdrop != null) return;
+        String fg = mForegroundPkg == null ? "" : mForegroundPkg;
+        boolean fgChanged = !fg.equals(mBackdropFg);
+        boolean stale = now - mBackdropAt > BACKDROP_STALE_MS;
+        if (!force && !fgChanged && !stale && mBackdrop != null) return;
+        long minGap = (force || fgChanged) ? 60 : BACKDROP_REFRESH_MS;
+        if (now - mBackdropAt < minGap) {
+            if (force || fgChanged) {
+                mH.removeCallbacks(mBgSnap);
+                mH.postDelayed(mBgSnap, minGap + 20);
+            }
+            return;
         }
         if (mView.getVisibility() != View.VISIBLE) return;
         final int w = mView.cardWidthPx();
@@ -2698,8 +2764,11 @@ public class IslandController implements IslandView.Host {
                 Bitmap bmp = null;
                 Bitmap blur = null;
                 try {
-                    bmp = captureRect(x, y, w, h);
-                    blur = IslandView.glassOf(bmp);
+                    blur = captureBlurGpu(x, y, w, h);
+                    if (blur == null) {
+                        bmp = captureRect(x, y, w, h);
+                        blur = IslandView.glassOf(bmp);
+                    }
                 } finally {
                     mPillGlassBusy = false;
                     if (mBgPending) {
@@ -2719,10 +2788,24 @@ public class IslandController implements IslandView.Host {
                     @Override
                     public void run() {
                         if (mExpandedState || mPrewarm) return;
+                        float luma = meanLuma(shot);
+                        boolean hit = mBackdropLuma >= 0 && luma >= 0
+                                && Math.abs(luma - mBackdropLuma) > 5f;
                         mBackdrop = shot;
                         mBackdropAt = stamp;
                         mBackdropFg = mForegroundPkg == null ? "" : mForegroundPkg;
+                        mBackdropLuma = luma;
                         mView.setBackdropBlur(shot);
+                        if (mChaseLeft > 0) {
+                            if (hit) {
+                                mChaseLeft = 0;
+                                IslandHook.log("chase hit luma=" + Math.round(luma));
+                            } else {
+                                mChaseLeft--;
+                                mH.removeCallbacks(mBgSnapForce);
+                                mH.postDelayed(mBgSnapForce, 110);
+                            }
+                        }
                     }
                 });
             }
@@ -2746,6 +2829,37 @@ public class IslandController implements IslandView.Host {
         } catch (Throwable t) {
             logOnce("patchPill: " + t);
         }
+    }
+
+    private static final int GPU_BLUR_W = 384;
+    private static final float GPU_BLUR_PROGRESS = 1.0f;
+    private boolean mGpuBlurOk = true;
+
+    private int screenRotation() {
+        try {
+            return mWm.getDefaultDisplay().getRotation();
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    private Bitmap captureBlurGpu(int x, int y, int w, int h) {
+        if (!mGpuBlurOk) return null;
+        if (!GpuBlur.available()) {
+            mGpuBlurOk = false;
+            return null;
+        }
+        int gw = Math.min(GPU_BLUR_W, Math.max(16, w));
+        int gh = Math.max(8, Math.round(gw * (h / (float) w)));
+        long t0 = SystemClock.elapsedRealtime();
+        Bitmap out = GpuBlur.shotAndBlur(
+                new android.graphics.Rect(x, y, x + w, y + h),
+                gw, gh, screenRotation(), GPU_BLUR_PROGRESS);
+        if (out != null) {
+            IslandHook.log("gpu blur " + gw + "x" + gh + " in "
+                    + (SystemClock.elapsedRealtime() - t0) + "ms");
+        }
+        return out;
     }
 
     private Bitmap captureRect(int x, int y, int w, int h) {
